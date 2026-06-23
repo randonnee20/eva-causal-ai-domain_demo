@@ -154,7 +154,7 @@ def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = No
     except Exception as e:
         err = str(e)
         if "429" in err or "quota" in err.lower() or "한도" in err:
-            msg = "AI 해석 서버가 일시적으로 바쁩니다. 잠시 후 다시 시도해 주세요."
+            msg = "오늘의 무료 AI 해석 한도가 모두 소진되었습니다. 내일 다시 이용해 주세요."
         elif "503" in err or "unavailable" in err.lower():
             msg = "AI 서비스에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
         else:
