@@ -69,9 +69,16 @@ st.markdown("""
 # Korean font — cache_resource 대신 매 실행마다 rcParams 직접 설정
 # ---------------------------------------------------------------------------
 def _setup_font():
-    candidates = ["Malgun Gothic", "NanumGothic", "NanumSquare", "HYGothic-Medium",
-                  "Hancom Gothic", "AppleGothic", "DejaVu Sans"]
+    candidates = ["Malgun Gothic", "NanumGothic", "NanumSquare", "NanumBarunGothic",
+                  "HYGothic-Medium", "Hancom Gothic", "AppleGothic"]
+    # 클라우드 환경에서 폰트 캐시가 오래됐을 경우 재빌드
     available = {f.name for f in fm.fontManager.ttflist}
+    if not any(c in available for c in candidates):
+        try:
+            fm._load_fontmanager(try_read_cache=False)
+            available = {f.name for f in fm.fontManager.ttflist}
+        except Exception:
+            pass
     for f in candidates:
         if f in available:
             matplotlib.rcParams["font.family"] = f
@@ -377,14 +384,17 @@ def page_dag() -> None:
 
     # 한글 폰트 파일 직접 로드
     _setup_font()
-    _kr_candidates = ["Malgun Gothic", "NanumGothic", "NanumSquare",
-                      "HYGothic-Medium", "Hancom Gothic"]
+    _kr_candidates = ["NanumGothic", "NanumBarunGothic", "NanumSquare",
+                      "Malgun Gothic", "HYGothic-Medium", "Hancom Gothic"]
     _kr_font_path = None
     for _fname in _kr_candidates:
-        _fp = fm.findfont(fm.FontProperties(family=_fname), fallback_to_default=False)
-        if _fp and "DejaVu" not in _fp and "ttf" in _fp.lower():
-            _kr_font_path = _fp
-            break
+        try:
+            _fp = fm.findfont(fm.FontProperties(family=_fname), fallback_to_default=False)
+            if _fp and "DejaVu" not in _fp and "ttf" in _fp.lower():
+                _kr_font_path = _fp
+                break
+        except Exception:
+            continue
     from matplotlib.font_manager import FontProperties
     import textwrap
 
