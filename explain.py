@@ -113,6 +113,11 @@ _PREFIX = "【규칙】반드시 3문장 이내로만 답하라.\n\n"
 
 def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = None) -> None:
     """AI 해석 생성 및 렌더링. 동일 캐시 키는 재호출하지 않는다."""
+    mode = llm.detect_mode()
+    if mode == "none":
+        st.caption("AI 해석 미표시: Gemini API 키 또는 Ollama가 연결되지 않았습니다.")
+        return
+
     h = hashlib.md5((cache_key + "||" + prompt).encode("utf-8")).hexdigest()
     sk = f"_ai_{h}"
     if sk not in st.session_state:
@@ -125,7 +130,7 @@ def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = No
                     max_tokens=600,
                 )
                 st.session_state[sk] = result
-        except Exception:
-            # LLM 미연결 또는 모델 없음 — AI 해석 없이 조용히 스킵
+        except Exception as e:
+            st.caption(f"AI 해석 생성 실패: {e}")
             return
     _box(st.session_state[sk], llm.status_label())
