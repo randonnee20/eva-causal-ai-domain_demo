@@ -140,7 +140,7 @@ def _gen_gemini(prompt, system, temperature, max_tokens):
                 last_err = e
                 err_str = str(e)
                 if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
-                    time.sleep(5 * (attempt + 1))  # 5s → 10s → 15s
+                    time.sleep(2 * (attempt + 1))  # 2s → 4s → 6s
                 else:
                     break  # 그 외 에러는 재시도 무의미
     raise RuntimeError(f"Gemini 호출 실패: {last_err}")
