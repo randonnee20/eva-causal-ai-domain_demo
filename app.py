@@ -5,6 +5,7 @@ Eva Causal AI Domain Demo
 
 import warnings
 
+import pathlib
 import matplotlib
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
@@ -68,23 +69,24 @@ st.markdown("""
 # ---------------------------------------------------------------------------
 # Korean font — cache_resource 대신 매 실행마다 rcParams 직접 설정
 # ---------------------------------------------------------------------------
+# repo에 번들된 폰트 (클라우드/로컬 공통으로 사용)
+_BUNDLE_FONT = pathlib.Path(__file__).parent / "fonts" / "MalgunGothic.ttf"
+
 def _setup_font():
-    candidates = ["Malgun Gothic", "NanumGothic", "NanumSquare", "NanumBarunGothic",
-                  "HYGothic-Medium", "Hancom Gothic", "AppleGothic"]
-    # 클라우드 환경에서 폰트 캐시가 오래됐을 경우 재빌드
+    matplotlib.rcParams["axes.unicode_minus"] = False
+    if _BUNDLE_FONT.exists():
+        fm.fontManager.addfont(str(_BUNDLE_FONT))
+        prop = fm.FontProperties(fname=str(_BUNDLE_FONT))
+        matplotlib.rcParams["font.family"] = prop.get_name()
+        return
+    # 번들 폰트 없으면 시스템 폰트 탐색
+    candidates = ["Malgun Gothic", "NanumGothic", "NanumBarunGothic",
+                  "NanumSquare", "Hancom Gothic", "AppleGothic"]
     available = {f.name for f in fm.fontManager.ttflist}
-    if not any(c in available for c in candidates):
-        try:
-            fm._load_fontmanager(try_read_cache=False)
-            available = {f.name for f in fm.fontManager.ttflist}
-        except Exception:
-            pass
     for f in candidates:
         if f in available:
             matplotlib.rcParams["font.family"] = f
-            matplotlib.rcParams["axes.unicode_minus"] = False
             return
-    matplotlib.rcParams["axes.unicode_minus"] = False
 
 _setup_font()
 
@@ -384,17 +386,17 @@ def page_dag() -> None:
 
     # 한글 폰트 파일 직접 로드
     _setup_font()
-    _kr_candidates = ["NanumGothic", "NanumBarunGothic", "NanumSquare",
-                      "Malgun Gothic", "HYGothic-Medium", "Hancom Gothic"]
-    _kr_font_path = None
-    for _fname in _kr_candidates:
-        try:
-            _fp = fm.findfont(fm.FontProperties(family=_fname), fallback_to_default=False)
-            if _fp and "DejaVu" not in _fp and "ttf" in _fp.lower():
-                _kr_font_path = _fp
-                break
-        except Exception:
-            continue
+    # 번들 폰트 우선, 없으면 시스템 탐색
+    _kr_font_path = str(_BUNDLE_FONT) if _BUNDLE_FONT.exists() else None
+    if not _kr_font_path:
+        for _fname in ["NanumGothic", "NanumBarunGothic", "Malgun Gothic", "Hancom Gothic"]:
+            try:
+                _fp = fm.findfont(fm.FontProperties(family=_fname), fallback_to_default=False)
+                if _fp and "DejaVu" not in _fp and "ttf" in _fp.lower():
+                    _kr_font_path = _fp
+                    break
+            except Exception:
+                continue
     from matplotlib.font_manager import FontProperties
     import textwrap
 
