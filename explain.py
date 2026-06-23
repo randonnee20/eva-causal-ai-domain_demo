@@ -127,10 +127,14 @@ def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = No
                     _PREFIX + prompt,
                     system=_system(domain),
                     temperature=temperature,
-                    max_tokens=600,
+                    max_tokens=900,
                 )
                 st.session_state[sk] = result
         except Exception as e:
-            st.caption(f"AI 해석 생성 실패: {e}")
+            err = str(e)
+            if "한도" in err or "quota" in err.lower() or "429" in err:
+                st.warning("오늘의 AI 해석 사용량을 모두 소진했습니다. 내일 다시 이용하거나 관리자에게 문의하세요.")
+            else:
+                st.caption(f"AI 해석 생성 실패: {e}")
             return
     _box(st.session_state[sk], llm.status_label())

@@ -847,6 +847,30 @@ def page_counterfactual() -> None:
 
 
 # ===========================================================================
+# 사이드바 — LLM 사용량 표시
+# ===========================================================================
+with st.sidebar:
+    try:
+        _ui = llm.usage_info()
+        st.markdown("### AI 해석 사용량")
+        _mode_now = _ui["mode"]
+        st.caption(f"LLM: {_mode_now}")
+        if llm.detect_mode() == "gemini":
+            _cnt, _lim = _ui["count"], _ui["limit"]
+            _pct = int(_cnt / _lim * 100) if _lim else 0
+            st.progress(min(_pct, 100))
+            if _cnt >= _lim:
+                st.error(f"오늘 사용량 소진 ({_cnt}/{_lim}회)\nAI 해석이 표시되지 않습니다.")
+            else:
+                st.caption(f"오늘 {_cnt} / {_lim}회 사용")
+        elif llm.detect_mode() == "ollama":
+            st.caption("로컬 Ollama — 제한 없음")
+        else:
+            st.caption("API 키 미설정")
+    except Exception:
+        pass
+
+# ===========================================================================
 # Router
 # ===========================================================================
 _step = st.session_state.get("step", 0)
