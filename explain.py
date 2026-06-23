@@ -97,51 +97,67 @@ def _system(domain: str = None) -> str:
 
 def _box(text: str, label: str) -> None:
     st.markdown(
-        f'<div style="border:1px solid #d8e0ea;border-radius:8px;margin:0.6rem 0 0.2rem;overflow:hidden">'
+        f'<div style="border:1px solid #d8e0ea;border-radius:8px;margin:0.4rem 0 0.2rem;overflow:hidden">'
         f'<div style="background:#2C3E6B;padding:6px 12px;color:#fff;font-size:0.8rem;font-weight:600">'
         f'AI 해석'
         f'<span style="float:right;font-weight:400;opacity:0.75;font-size:0.72rem">{label}</span>'
-        f'</div></div>',
+        f'</div>'
+        f'<div style="padding:11px 14px;font-size:0.9rem;line-height:1.7;color:#1a1a2e;'
+        f'background:#fafbfd;white-space:pre-wrap;word-break:keep-all">{text}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    # 텍스트는 st.markdown으로 렌더링 — HTML 잘림 없음
-    with st.container():
-        st.markdown(
-            f'<div style="border:1px solid #d8e0ea;border-top:none;border-radius:0 0 8px 8px;'
-            f'padding:11px 14px;font-size:0.9rem;line-height:1.7;color:#1a1a2e;background:#fafbfd">'
-            f'{text.replace(chr(10), "<br>")}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
 
 
 _PREFIX = "【규칙】반드시 3문장 이내로만 답하라.\n\n"
 
 
 def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = None) -> None:
-    """AI 해석 생성 및 렌더링. 동일 캐시 키는 재호출하지 않는다."""
-    mode = llm.detect_mode()
-    if mode == "none":
-        st.caption("AI 해석 미표시: Gemini API 키 또는 Ollama가 연결되지 않았습니다.")
+    """AI 해석 — 버튼 클릭 시에만 생성. 성공 시 캐시, 실패 시 재시도 버튼 제공."""
+    if llm.detect_mode() == "none":
+        return  # LLM 미연결 시 조용히 숨김
+
+    h  = hashlib.md5((cache_key + "||" + prompt).encode("utf-8")).hexdigest()
+    sk = f"_ai_{h}"       # 생성된 텍스트
+    ek = f"_ai_err_{h}"  # 오류 상태
+
+    # 이미 생성된 결과가 있으면 바로 표시
+    if sk in st.session_state:
+        _box(st.session_state[sk], llm.status_label())
         return
 
-    h = hashlib.md5((cache_key + "||" + prompt).encode("utf-8")).hexdigest()
-    sk = f"_ai_{h}"
-    if sk not in st.session_state:
-        try:
-            with st.spinner("AI가 결과를 해석하는 중..."):
-                result = llm.generate(
-                    _PREFIX + prompt,
-                    system=_system(domain),
-                    temperature=temperature,
-                    max_tokens=1200,
-                )
-                st.session_state[sk] = result
-        except Exception as e:
-            err = str(e)
-            if "한도" in err or "quota" in err.lower() or "429" in err:
-                st.warning("오늘의 AI 해석 사용량을 모두 소진했습니다. 내일 다시 이용하거나 관리자에게 문의하세요.")
-            else:
-                st.caption(f"AI 해석 생성 실패: {e}")
-            return
-    _box(st.session_state[sk], llm.status_label())
+    # 버튼 UI
+    btn_col, _ = st.columns([1, 4])
+    btn_label = "AI 해석 다시 보기" if ek in st.session_state else "AI 해석 보기"
+    clicked = btn_col.button(btn_label, key=f"btn_{h}", use_container_width=True)
+
+    # 이전 오류 메시지 표시 (재시도 전까지 유지)
+    if ek in st.session_state and not clicked:
+        st.caption(st.session_state[ek])
+        return
+
+    if not clicked:
+        return
+
+    # 생성 시도
+    st.session_state.pop(ek, None)
+    try:
+        with st.spinner("AI가 결과를 해석하는 중..."):
+            result = llm.generate(
+                _PREFIX + prompt,
+                system=_system(domain),
+                temperature=temperature,
+                max_tokens=1200,
+            )
+        st.session_state[sk] = result
+        st.rerun()
+    except Exception as e:
+        err = str(e)
+        if "429" in err or "quota" in err.lower() or "한도" in err:
+            msg = "AI 해석 서버가 일시적으로 바쁩니다. 잠시 후 다시 시도해 주세요."
+        elif "503" in err or "unavailable" in err.lower():
+            msg = "AI 서비스에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
+        else:
+            msg = "AI 해석을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+        st.session_state[ek] = msg
+        st.caption(msg)
