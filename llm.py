@@ -21,7 +21,7 @@ import requests
 
 OLLAMA_URL    = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL  = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
-GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]  # lite: 1000 RPD, flash: 250 RPD
+GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"]  # 3.1-lite: RPD 넉넉, 2.5-lite: 1000 RPD
 USAGE_FILE    = Path("data/usage.json")
 
 _mode = None  # "ollama" | "gemini" | "none"
@@ -149,7 +149,7 @@ def _gen_gemini(prompt, system, temperature, max_tokens):
 # ---------------------------------------------------------------------------
 # 공개 인터페이스
 # ---------------------------------------------------------------------------
-def generate(prompt, system="", temperature=0.4, max_tokens=900):
+def generate(prompt, system="", temperature=0.4, max_tokens=1200):
     mode = detect_mode()
     if mode == "ollama":
         return _gen_ollama(prompt, system, temperature, max_tokens)

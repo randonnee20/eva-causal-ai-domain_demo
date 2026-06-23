@@ -96,19 +96,23 @@ def _system(domain: str = None) -> str:
 
 
 def _box(text: str, label: str) -> None:
-    # 줄바꿈을 <br>로 변환하고 특수문자 이스케이프
-    import html as _html
-    safe = _html.escape(text).replace("\n", "<br>")
     st.markdown(
         f'<div style="border:1px solid #d8e0ea;border-radius:8px;margin:0.6rem 0 0.2rem;overflow:hidden">'
         f'<div style="background:#2C3E6B;padding:6px 12px;color:#fff;font-size:0.8rem;font-weight:600">'
         f'AI 해석'
         f'<span style="float:right;font-weight:400;opacity:0.75;font-size:0.72rem">{label}</span>'
-        f'</div>'
-        f'<div style="padding:11px 14px;font-size:0.9rem;line-height:1.65;color:#1a1a2e;background:#fafbfd;white-space:normal;word-break:keep-all">{safe}</div>'
-        f'</div>',
+        f'</div></div>',
         unsafe_allow_html=True,
     )
+    # 텍스트는 st.markdown으로 렌더링 — HTML 잘림 없음
+    with st.container():
+        st.markdown(
+            f'<div style="border:1px solid #d8e0ea;border-top:none;border-radius:0 0 8px 8px;'
+            f'padding:11px 14px;font-size:0.9rem;line-height:1.7;color:#1a1a2e;background:#fafbfd">'
+            f'{text.replace(chr(10), "<br>")}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 _PREFIX = "【규칙】반드시 3문장 이내로만 답하라.\n\n"
@@ -130,7 +134,7 @@ def show(cache_key: str, prompt: str, temperature: float = 0.3, domain: str = No
                     _PREFIX + prompt,
                     system=_system(domain),
                     temperature=temperature,
-                    max_tokens=900,
+                    max_tokens=1200,
                 )
                 st.session_state[sk] = result
         except Exception as e:

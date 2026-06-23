@@ -272,6 +272,7 @@ def _reset() -> None:
 # Step 0 — 업종 선택
 # ===========================================================================
 def page_domain_select() -> None:
+    _show_usage_badge()
     st.markdown("## EVA Causal AI  /  업종별 인과추론 데모")
     st.markdown(
         '<div class="info-box">분석할 업종을 선택하세요. 선택 후 데이터 로드 → DAG → ATE/CATE → 반사실 시뮬레이션 순으로 진행됩니다.</div>',
@@ -546,6 +547,7 @@ def page_dag() -> None:
 # Step 3 — ATE / CATE
 # ===========================================================================
 def page_ate_cate() -> None:
+    _show_usage_badge()
     domain = st.session_state["domain"]
     cfg = DOMAINS[domain]
     df: pd.DataFrame = st.session_state.get("df")
@@ -680,6 +682,7 @@ def page_ate_cate() -> None:
 # Step 4 — 반사실 시뮬레이션
 # ===========================================================================
 def page_counterfactual() -> None:
+    _show_usage_badge()
     domain = st.session_state["domain"]
     cfg = DOMAINS[domain]
     df: pd.DataFrame = st.session_state.get("df")
@@ -847,26 +850,32 @@ def page_counterfactual() -> None:
 
 
 # ===========================================================================
-# 사이드바 — LLM 사용량 표시
+# LLM 사용량 — 우상단 고정 표시
 # ===========================================================================
-with st.sidebar:
+def _show_usage_badge() -> None:
+    """모든 페이지 상단에서 호출 — AI 사용량 배지 표시."""
     try:
         _ui = llm.usage_info()
-        st.markdown("### AI 해석 사용량")
-        _mode_now = _ui["mode"]
-        st.caption(f"LLM: {_mode_now}")
         if llm.detect_mode() == "gemini":
             _cnt, _lim = _ui["count"], _ui["limit"]
-            _pct = int(_cnt / _lim * 100) if _lim else 0
-            st.progress(min(_pct, 100))
+            _pct = min(int(_cnt / _lim * 100), 100) if _lim else 0
             if _cnt >= _lim:
-                st.error(f"오늘 사용량 소진 ({_cnt}/{_lim}회)\nAI 해석이 표시되지 않습니다.")
+                color, msg = "#c0392b", f"AI 해석 한도 소진 ({_cnt}/{_lim})"
+            elif _pct >= 80:
+                color, msg = "#e67e22", f"AI 해석 {_cnt}/{_lim}회"
             else:
-                st.caption(f"오늘 {_cnt} / {_lim}회 사용")
+                color, msg = "#2d6a4f", f"AI 해석 {_cnt}/{_lim}회"
+            st.markdown(
+                f'<div style="text-align:right;font-size:0.75rem;color:{color};'
+                f'margin-bottom:4px">{msg}  ({_ui["mode"]})</div>',
+                unsafe_allow_html=True,
+            )
         elif llm.detect_mode() == "ollama":
-            st.caption("로컬 Ollama — 제한 없음")
-        else:
-            st.caption("API 키 미설정")
+            st.markdown(
+                f'<div style="text-align:right;font-size:0.75rem;color:#888;margin-bottom:4px">'
+                f'{_ui["mode"]}</div>',
+                unsafe_allow_html=True,
+            )
     except Exception:
         pass
 
