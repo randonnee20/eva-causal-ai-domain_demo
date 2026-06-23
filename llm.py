@@ -1,41 +1,48 @@
-"""llm.py — LLM 라우터
+"""llm.py — 로컬 Ollama(gemma3:4b) 우선, Gemini API fallback
 
-우선순위:
-  1. Ollama (로컬, gemma3:4b)  — PC 실행 시
-  2. Gemini API (Google)       — 클라우드 배포 시 기본
-  3. Claude API (Anthropic)    — Gemini 키 없을 때 폴백
-  4. none                      — LLM 없이 조용히 스킵
+동작 방식:
+  로컬 PC : Ollama(http://localhost:11434)가 살아있으면 gemma3:4b 사용
+  Cloud   : Ollama 없음 → st.secrets["GEMINI_API_KEY"]로 Gemini API 사용
+
+환경변수(선택):
+  OLLAMA_URL    : 기본 http://localhost:11434
+  OLLAMA_MODEL  : 기본 gemma3:4b
+  GEMINI_API_KEY: Cloud 배포 시 (st.secrets 우선)
+  DAILY_LIMIT   : Gemini 일일 한도 (기본 35)
 """
 
 import os
+import json
+import time
+from datetime import date
+from pathlib import Path
+
 import requests
 
-OLLAMA_URL   = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+OLLAMA_URL    = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL  = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
+GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
+USAGE_FILE    = Path("data/usage.json")
 
-_mode = None
+_mode = None  # "ollama" | "gemini" | "none"
+
+
+def _daily_limit():
+    return int(os.environ.get("DAILY_LIMIT", "35"))
 
 
 # ---------------------------------------------------------------------------
-# 가용 모드 감지
+# 모드 감지
 # ---------------------------------------------------------------------------
-def _ollama_model_available() -> bool:
+def _ollama_alive():
     try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
-        if r.status_code != 200:
-            return False
-        tags = r.json().get("models", [])
-        names = [m.get("name", "").split(":")[0] for m in tags]
-        model_base = OLLAMA_MODEL.split(":")[0]
-        return any(model_base in n for n in names) or any(
-            OLLAMA_MODEL in m.get("name", "") for m in tags
-        )
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=1.5)
+        return r.status_code == 200
     except Exception:
         return False
 
 
-def _get_gemini_key() -> str:
+def _get_gemini_key():
     try:
         import streamlit as st
         if "GEMINI_API_KEY" in st.secrets:
@@ -45,44 +52,31 @@ def _get_gemini_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "").strip()
 
 
-def _get_claude_key() -> str:
-    try:
-        import streamlit as st
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return str(st.secrets["ANTHROPIC_API_KEY"]).strip()
-    except Exception:
-        pass
-    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
-
-
-def detect_mode(force: bool = False) -> str:
+def detect_mode(force=False):
     global _mode
     if _mode is not None and not force:
         return _mode
-    if _ollama_model_available():
+    if _ollama_alive():
         _mode = "ollama"
     elif _get_gemini_key():
         _mode = "gemini"
-    elif _get_claude_key():
-        _mode = "claude"
     else:
         _mode = "none"
     return _mode
 
 
-def status_label() -> str:
+def status_label():
     return {
         "ollama": f"로컬 {OLLAMA_MODEL}",
-        "gemini": f"Google {GEMINI_MODEL}",
-        "claude": "Claude API",
+        "gemini": "Gemini API",
         "none":   "LLM 미연결",
-    }.get(detect_mode(), "알 수 없음")
+    }[detect_mode()]
 
 
 # ---------------------------------------------------------------------------
-# 생성 함수
+# Ollama
 # ---------------------------------------------------------------------------
-def _gen_ollama(prompt: str, system: str, temperature: float, max_tokens: int) -> str:
+def _gen_ollama(prompt, system, temperature, max_tokens):
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -95,45 +89,87 @@ def _gen_ollama(prompt: str, system: str, temperature: float, max_tokens: int) -
     return r.json().get("response", "").strip()
 
 
-def _gen_gemini(prompt: str, system: str, temperature: float, max_tokens: int) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=_get_gemini_key())
-    model = genai.GenerativeModel(
-        GEMINI_MODEL,
-        system_instruction=system or "You are a helpful assistant.",
-        generation_config=genai.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        ),
-    )
-    response = model.generate_content(prompt)
-    return response.text.strip()
+# ---------------------------------------------------------------------------
+# Gemini (모델 폴백 + 재시도 + 일일 사용량 추적)
+# ---------------------------------------------------------------------------
+def _check_and_increment():
+    limit = _daily_limit()
+    if limit >= 9999:
+        return
+    today = str(date.today())
+    USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    usage = {"date": today, "count": 0}
+    if USAGE_FILE.exists():
+        try:
+            usage = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    if usage.get("date") != today:
+        usage = {"date": today, "count": 0}
+    if usage["count"] >= limit:
+        raise RuntimeError(f"오늘 AI 해석 한도({limit}회)를 모두 사용했습니다. 내일 다시 이용해 주세요.")
+    usage["count"] += 1
+    USAGE_FILE.write_text(json.dumps(usage, ensure_ascii=False), encoding="utf-8")
 
 
-def _gen_claude(prompt: str, system: str, temperature: float, max_tokens: int) -> str:
-    import anthropic
-    client = anthropic.Anthropic(api_key=_get_claude_key())
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=max_tokens,
-        system=system or "You are a helpful assistant.",
-        messages=[{"role": "user", "content": prompt}],
+def _gen_gemini(prompt, system, temperature, max_tokens):
+    from google import genai
+    from google.genai import types
+    _check_and_increment()
+    client = genai.Client(api_key=_get_gemini_key())
+    cfg = types.GenerateContentConfig(
         temperature=temperature,
+        max_output_tokens=max_tokens,
+        system_instruction=system or None,
     )
-    return msg.content[0].text.strip()
+    last_err = None
+    for model_name in GEMINI_MODELS:
+        for attempt in range(3):  # 모델당 최대 3회 재시도
+            try:
+                resp = client.models.generate_content(
+                    model=model_name, contents=prompt, config=cfg
+                )
+                text = (resp.text or "").strip()
+                try:
+                    if resp.candidates[0].finish_reason.name == "MAX_TOKENS":
+                        text = text + "…"
+                except Exception:
+                    pass
+                return text
+            except Exception as e:
+                last_err = e
+                err_str = str(e)
+                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                    time.sleep(5 * (attempt + 1))  # 5s → 10s → 15s
+                else:
+                    break  # 그 외 에러는 재시도 무의미
+    raise RuntimeError(f"Gemini 호출 실패: {last_err}")
 
 
-def generate(
-    prompt: str,
-    system: str = "",
-    temperature: float = 0.4,
-    max_tokens: int = 600,
-) -> str:
+# ---------------------------------------------------------------------------
+# 공개 인터페이스
+# ---------------------------------------------------------------------------
+def generate(prompt, system="", temperature=0.4, max_tokens=600):
     mode = detect_mode()
     if mode == "ollama":
         return _gen_ollama(prompt, system, temperature, max_tokens)
     if mode == "gemini":
         return _gen_gemini(prompt, system, temperature, max_tokens)
-    if mode == "claude":
-        return _gen_claude(prompt, system, temperature, max_tokens)
-    raise RuntimeError("LLM 사용 불가: Ollama 미구동, Gemini/Claude API 키 없음.")
+    raise RuntimeError("LLM 사용 불가: Ollama 미실행이고 Gemini 키도 없습니다.")
+
+
+def usage_info():
+    """사이드바 표시용 — Gemini 모드일 때만 카운트 의미 있음"""
+    today = str(date.today())
+    limit = _daily_limit()
+    if detect_mode() != "gemini":
+        return {"mode": status_label(), "count": 0, "limit": limit}
+    count = 0
+    if USAGE_FILE.exists():
+        try:
+            u = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+            if u.get("date") == today:
+                count = u.get("count", 0)
+        except Exception:
+            pass
+    return {"mode": status_label(), "count": count, "limit": limit}
